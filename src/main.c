@@ -27,6 +27,8 @@ const int SCREEN_HEIGHT = 800;
 Texture2D atlas;
 Ship player_ship;
 Rectangle ship_texture_rect = {0, 0, 32, 32};
+Rectangle ship_effect_texture_rect = {32, 0, 32, 32};
+Rectangle ship_effect_dest = {};
 Vector2 draw_pos = {400, 200};
 Vector2 ship_origin = {16, 16};
 
@@ -60,11 +62,21 @@ void GameInit()
 	player_ship.speed_acc = 200;
 }
 
-void DrawShip(Ship *ship, Texture2D texture)
+void DrawThrustEffect(Ship *ship)
+{
+	Vector2 effect_offset = {cosf(ship->angle * DEG2RAD), sinf(ship->angle * DEG2RAD)};
+	effect_offset = Vector2Scale(effect_offset, -16);
+	ship_effect_dest = (Rectangle){ship->pos.x + effect_offset.x, ship->pos.y + effect_offset.y, 32, 32};
+	if (IsKeyDown(KEY_UP))
+		DrawTexturePro(atlas, ship_effect_texture_rect, ship_effect_dest, ship_origin, ship->angle, WHITE);
+}
+
+void DrawShip(Ship *ship)
 {
 	ship->dest.x = ship->pos.x;
 	ship->dest.y = ship->pos.y;
-	DrawTexturePro(texture, ship_texture_rect, ship->dest, ship_origin, ship->angle, WHITE);
+	DrawTexturePro(atlas, ship_texture_rect, ship->dest, ship_origin, ship->angle, WHITE);
+	DrawThrustEffect(ship);
 }
 
 void ListenInputs()
@@ -72,16 +84,8 @@ void ListenInputs()
     if (IsKeyDown(KEY_UP))    ApplyThrust(&player_ship);
     if (IsKeyDown(KEY_LEFT))  player_ship.angle_vel = -player_ship.rot_speed;
 	if (IsKeyDown(KEY_RIGHT)) player_ship.angle_vel = player_ship.rot_speed;
-	//player_ship.angle += player_ship.rot_speed * GetFrameTime();
-	//player_ship.angle -= player_ship.rot_speed * GetFrameTime();
-	//player_ship.speed += player_ship.speed_acc * GetFrameTime();
-    //if (IsKeyDown(KEY_DOWN))  player_ship.speed -= player_ship.speed_acc * GetFrameTime();
 
 	if (IsKeyReleased(KEY_LEFT) || IsKeyReleased(KEY_RIGHT)) player_ship.angle_vel = 0;
-
-	//if (IsKeyDown(KEY_UP)) UpdatePlayerMoveDir();
-
-	//player_ship.speed = Clamp(player_ship.speed, 1, player_ship.speed_max);
 
 	UpdateShipPos(&player_ship);
 }
@@ -92,7 +96,7 @@ void DrawScreen()
 
 		ClearBackground(BLACK);
 
-		DrawShip(&player_ship, atlas);
+		DrawShip(&player_ship);
 		
 	EndDrawing();
 }
