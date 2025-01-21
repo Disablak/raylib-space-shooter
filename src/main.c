@@ -6,6 +6,7 @@
 
 typedef struct Ship
 {
+	bool is_alive;
 	Vector2 pos;
 	Vector2 vel;
 	Vector2 move_dir;
@@ -44,6 +45,7 @@ void GameInit()
 {
 	atlas = LoadTexture("atlas.png");
 
+	player_ship.is_alive = true;
 	player_ship.pos = (Vector2){20, SCREEN_HEIGHT / 2};
 	player_ship.dest = (Rectangle){SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2, 32, 32};
 	player_ship.angle = 0;
@@ -62,10 +64,21 @@ void DrawThrustEffect(Ship *ship)
 
 void DrawShip(Ship *ship)
 {
+	if (ship->is_alive == false)
+	{
+		return;
+	}
+
 	ship->dest.x = ship->pos.x;
 	ship->dest.y = ship->pos.y;
+
 	DrawTexturePro(atlas, ship_texture_rect, ship->dest, ship_origin, ship->angle, WHITE);
 	DrawThrustEffect(ship);
+}
+
+void DrawBlackHole()
+{
+	DrawTexturePro(atlas, black_hole_texture_rect, black_hole_dest, black_hole_origin, GetTime() * 50, WHITE);
 }
 
 void ApplyThrust(Ship *ship)
@@ -98,20 +111,38 @@ void UpdateBlackHoleInfluence()
 
 void UpdateShipPos(Ship *ship)
 {
+	if (ship->is_alive == false)
+		return;
+
 	ship->pos = Vector2Add(ship->pos, Vector2Scale(ship->vel, GetFrameTime()));
-    ship->angle += ship->angle_vel * GetFrameTime();
+	ship->angle += ship->angle_vel * GetFrameTime();
 
 	if (ship->pos.x > SCREEN_WIDTH) ship->pos.x = 0;
-    if (ship->pos.x < 0) ship->pos.x = SCREEN_WIDTH;
-    if (ship->pos.y > SCREEN_HEIGHT) ship->pos.y = 0;
-    if (ship->pos.y < 0) ship->pos.y = SCREEN_HEIGHT;
+	if (ship->pos.x < 0) ship->pos.x = SCREEN_WIDTH;
+	if (ship->pos.y > SCREEN_HEIGHT) ship->pos.y = 0;
+	if (ship->pos.y < 0) ship->pos.y = SCREEN_HEIGHT;
 }
 
+void DestroyPlayerShip()
+{
+	player_ship.is_alive = false;
+}
+
+void CheckCollision()
+{
+	if (player_ship.is_alive == false)
+		return;
+
+	float distance = Vector2Distance(player_ship.pos, black_hole_pos);
+	if (distance < 32)
+		DestroyPlayerShip();
+}
 
 void GameLogic()
 {
 	UpdateBlackHoleInfluence();
 	UpdateShipPos(&player_ship);
+	CheckCollision();
 }
 
 void DrawScreen()
@@ -121,7 +152,7 @@ void DrawScreen()
 		ClearBackground(BLACK);
 
 		DrawShip(&player_ship);
-		DrawTexturePro(atlas, black_hole_texture_rect, black_hole_dest, black_hole_origin, GetTime() * 50, WHITE);
+		DrawBlackHole();
 		
 	EndDrawing();
 }
