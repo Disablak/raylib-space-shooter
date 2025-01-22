@@ -11,6 +11,10 @@
 	"files.associations": {
 		"*.m": "c",
 		"raymath.h": "c",
-		"__node_handle": "c"
+		"__node_handle": "c",
+		"cstdlib": "c",
+		"locale": "c",
+		"new": "c",
+		"ostream": "c"
 	}
 }
