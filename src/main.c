@@ -1,13 +1,14 @@
 #include "stdio.h"
 #include <stdlib.h> 
 #include "raylib.h"
-#include "resource_dir.h"	// utility header for SearchAndSetResourceDir
+#include "resource_dir.h"
 #include "raymath.h"
 
 
 typedef struct Ship
 {
 	bool is_alive;
+	bool is_player;
 	Vector2 pos;
 	Vector2 vel;
 	Vector2 move_dir;
@@ -36,13 +37,13 @@ const int SCREEN_WIDTH = 1280;
 const int SCREEN_HEIGHT = 800;
 
 Texture2D atlas;
+
 Ship player_ship;
 Rectangle ship_texture_rect = {0, 0, 32, 32};
 Rectangle ship_effect_texture_rect = {32, 0, 32, 32};
 Rectangle ship_effect_dest = {};
-
-Vector2 draw_pos = {400, 200};
 Vector2 ship_origin = {16, 16};
+
 
 Vector2 black_hole_pos = {SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2};
 float black_hole_radius = 512;
@@ -54,18 +55,42 @@ const int BULLETS_LENGTH = 100;
 Bullet all_bullets[BULLETS_LENGTH];
 Rectangle bullet_texture_rect = {96, 0, 32, 32};
 Rectangle bullet_dest = {0, 0, 32, 32};
+const float BULLET_COOLDOWN_TIME = 0.2f;
+float bullet_cooldown = 0;
 
+//enemy
+Ship enemy_ship;
+
+const int ENEMY_STATE_NONE = 0;
+const int ENEMY_STATE_THRUST = 1;
+const int ENEMY_STATE_ROTATE = 2;
+int enemy_state = ENEMY_STATE_NONE;
+
+const float TIME_THRUST = 1.0f;
+const float DELAY_THRUST = 0.5f;
+float enemy_time = -1.0f;
+float enemy_rot_dir = 1.0f;
+float enemy_rot_time = 0.0f;
 
 void GameInit()
 {
 	atlas = LoadTexture("atlas.png");
 
 	player_ship.is_alive = true;
+	player_ship.is_player = true;
 	player_ship.pos = (Vector2){20, SCREEN_HEIGHT / 2};
 	player_ship.dest = (Rectangle){SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2, 32, 32};
 	player_ship.angle = 0;
 	player_ship.rot_speed = 100;
 	player_ship.speed_acc = 200;
+
+	enemy_ship.is_alive = true;
+	enemy_ship.is_player = false;
+	enemy_ship.pos = (Vector2){SCREEN_WIDTH - 20, SCREEN_HEIGHT / 2};
+	enemy_ship.dest = (Rectangle){SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2, 32, 32};
+	enemy_ship.angle = 180;
+	enemy_ship.rot_speed = 100;
+	enemy_ship.speed_acc = 200;
 
 	for (size_t i = 0; i < BULLETS_LENGTH; i++)
 	{
@@ -77,9 +102,13 @@ void GameInit()
 
 void DrawThrustEffect(Ship *ship)
 {
+	if (ship->is_player == false)
+		return;
+
 	Vector2 effect_offset = {cosf(ship->angle * DEG2RAD), sinf(ship->angle * DEG2RAD)};
 	effect_offset = Vector2Scale(effect_offset, -16);
 	ship_effect_dest = (Rectangle){ship->pos.x + effect_offset.x, ship->pos.y + effect_offset.y, 32, 32};
+	
 	if (IsKeyDown(KEY_UP))
 		DrawTexturePro(atlas, ship_effect_texture_rect, ship_effect_dest, ship_origin, ship->angle, WHITE);
 }
@@ -120,14 +149,19 @@ void DrawBullets()
 void ApplyThrust(Ship *ship)
 {
 	float thrust = ship->speed_acc * GetFrameTime();
-    Vector2 force = { cosf(ship->angle * DEG2RAD) * thrust, sinf(ship->angle * DEG2RAD) * thrust };
-    ship->vel = Vector2Add(ship->vel, force);
+	Vector2 force = { cosf(ship->angle * DEG2RAD) * thrust, sinf(ship->angle * DEG2RAD) * thrust };
+	ship->vel = Vector2Add(ship->vel, force);
 }
 
 void Shoot()
 {
 	if (player_ship.is_alive == false)
 		return;
+
+	if (bullet_cooldown > 0.0f)
+		return;
+
+	bullet_cooldown = BULLET_COOLDOWN_TIME;
 
 	for (size_t i = 0; i < BULLETS_LENGTH; i++)
 	{
@@ -178,6 +212,42 @@ void UpdateShipPos(Ship *ship)
 	if (ship->pos.y < 0) ship->pos.y = SCREEN_HEIGHT;
 }
 
+void UpdateEnemyLogic(float dt)
+{
+	if (enemy_time > 0.0f)
+	{
+		enemy_time -= dt;
+
+		if (enemy_state == ENEMY_STATE_THRUST)
+			ApplyThrust(&enemy_ship);
+		if (enemy_state == ENEMY_STATE_ROTATE)
+			enemy_ship.angle_vel = enemy_ship.rot_speed * enemy_rot_dir;
+	}
+
+	if (enemy_time < 0.0f)
+	{
+		if (enemy_state == ENEMY_STATE_NONE)
+		{
+			enemy_time = TIME_THRUST;
+			enemy_state = ENEMY_STATE_THRUST;
+		}
+		else if (enemy_state == ENEMY_STATE_THRUST)
+		{
+			enemy_time = GetRandomValue(1, 3);
+			enemy_rot_dir = GetRandomValue(-1, 1);
+			enemy_state = ENEMY_STATE_ROTATE;
+		}
+		else if (enemy_state == ENEMY_STATE_ROTATE)
+		{
+			enemy_time = DELAY_THRUST;
+			enemy_state = ENEMY_STATE_NONE;
+		}
+		
+	}
+	
+	UpdateShipPos(&enemy_ship);
+}
+
 void DestroyPlayerShip()
 {
 	player_ship.is_alive = false;
@@ -195,6 +265,8 @@ void CheckCollision()
 
 void UpdateBullets()
 {
+	bullet_cooldown -= GetFrameTime();
+
 	for (size_t i = 0; i < BULLETS_LENGTH; i++)
 	{
 		if (all_bullets[i].is_active == false)
@@ -214,6 +286,7 @@ void GameLogic()
 {
 	UpdateBlackHoleInfluence();
 	UpdateShipPos(&player_ship);
+	UpdateEnemyLogic(GetFrameTime());
 	UpdateBullets();
 	CheckCollision();
 }
@@ -225,6 +298,7 @@ void DrawScreen()
 		ClearBackground(BLACK);
 
 		DrawShip(&player_ship);
+		DrawShip(&enemy_ship);
 		DrawBlackHole();
 		DrawBullets();
 		
