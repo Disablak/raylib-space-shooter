@@ -32,7 +32,6 @@ typedef struct Bullet
 
 typedef struct Animation
 {
-	int speed;
 	int cur_frame;
 	int frame_count;
 	Vector2 pos;
@@ -47,44 +46,50 @@ float LerpAngle(float startAngle, float endAngle, float t);
 const int SCREEN_WIDTH = 1280;
 const int SCREEN_HEIGHT = 800;
 
+//general
 Texture2D atlas;
-Rectangle explosion_texture_rect = {0, 32, 32, 32};
+const int GAME_STATE_GAMEPLAY = 0;
+const int GAME_STATE_LOOSE = 1;
+const int GAME_STATE_VICTORY = 2;
+int game_state = GAME_STATE_GAMEPLAY;
+float time_hint = 5.0f;
+
+//animations
 int frame_counter = 0;
 int frame_speed = 8;
-int explosion_frame = 0;
 int animation_count = 0;
 Animation *animations;
 
+//player
 Ship player_ship;
 Rectangle ship_texture_rect = {0, 0, 32, 32};
 Rectangle ship_effect_texture_rect = {32, 0, 32, 32};
 Rectangle ship_effect_dest = {};
 Vector2 ship_origin = {16, 16};
 
-
+//black hole
 Vector2 black_hole_pos = {SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2};
 float black_hole_radius = 512;
 Rectangle black_hole_texture_rect = {64, 0, 32, 32};
 Rectangle black_hole_dest = {SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2, 128, 128};
 Vector2 black_hole_origin = {64, 64};
 
+//bullets
 const int BULLETS_LENGTH = 100;
 Bullet all_bullets[BULLETS_LENGTH];
 Rectangle bullet_texture_rect = {96, 0, 32, 32};
 Rectangle bullet_dest = {0, 0, 32, 32};
-const float BULLET_COOLDOWN_TIME = 0.2f;
+const float BULLET_COOLDOWN_TIME = 0.3f;
 float bullet_cooldown = 0;
 
 //enemy
 Ship enemy_ship;
-
 const int ENEMY_STATE_NONE = 0;
 const int ENEMY_STATE_THRUST = 1;
 const int ENEMY_STATE_ROTATE = 2;
-int enemy_state = ENEMY_STATE_NONE;
-
 const float TIME_THRUST = 1.0f;
 const float DELAY_THRUST = 0.5f;
+int enemy_state = ENEMY_STATE_THRUST;
 float enemy_time = -1.0f;
 int enemy_rot_dir = 1;
 float enemy_rot_time = 0.0f;
@@ -104,25 +109,35 @@ float RandomRange(int milisecFrom, int milisecTo)
 	return FromMilisecToSec(GetRandomValue(milisecFrom, milisecTo));
 }
 
-void GameInit()
+void GameReset()
 {
-	atlas = LoadTexture("atlas.png");
+	game_state = GAME_STATE_GAMEPLAY;
+	time_hint = 5;
 
 	player_ship.is_alive = true;
 	player_ship.is_player = true;
 	player_ship.pos = (Vector2){20, SCREEN_HEIGHT / 2};
 	player_ship.dest = (Rectangle){SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2, 32, 32};
+	player_ship.vel = (Vector2){0, 0};
+	player_ship.angle_vel = 0;
 	player_ship.angle = 0;
 	player_ship.rot_speed = 100;
 	player_ship.speed_acc = 200;
+
+	bullet_cooldown = 0.0f;
 
 	enemy_ship.is_alive = true;
 	enemy_ship.is_player = false;
 	enemy_ship.pos = (Vector2){SCREEN_WIDTH - 20, SCREEN_HEIGHT / 2};
 	enemy_ship.dest = (Rectangle){SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2, 32, 32};
+	enemy_ship.vel = (Vector2){0, 0};
+	enemy_ship.angle_vel = 0;
 	enemy_ship.angle = 180;
 	enemy_ship.rot_speed = 100;
 	enemy_ship.speed_acc = 200;
+
+	enemy_state = ENEMY_STATE_THRUST;
+	enemy_time = -1.0f;
 
 	for (size_t i = 0; i < BULLETS_LENGTH; i++)
 	{
@@ -130,6 +145,13 @@ void GameInit()
 		all_bullets[i].angle = 0;
 		all_bullets[i].speed = 1000;
 	}
+}
+
+void GameInit()
+{
+	atlas = LoadTexture("atlas.png");
+
+	GameReset();
 }
 
 void DrawThrustEffect(Ship *ship)
@@ -217,8 +239,39 @@ void SpawnExplosionEffect(Vector2 pos)
 	animations[animation_count - 1].texture_rect = (Rectangle){0, 32, 32, 32};
 	animations[animation_count - 1].cur_frame = 0;
 	animations[animation_count - 1].frame_count = 4;
-	animations[animation_count - 1].speed = 8;
 	animations[animation_count - 1].is_stopped = false;
+}
+
+void GameWin()
+{
+	if (game_state == GAME_STATE_GAMEPLAY)
+		game_state = GAME_STATE_VICTORY;
+}
+
+void GameLose()
+{
+	if (game_state == GAME_STATE_GAMEPLAY)
+		game_state = GAME_STATE_LOOSE;
+}
+
+void DrawUI()
+{
+	if (game_state == GAME_STATE_GAMEPLAY)
+	{
+		time_hint -= GetFrameTime();
+		if (time_hint <= 0)
+			return;
+		
+		DrawText("Use arrows to controll and space to fire. To reset press R", 130, SCREEN_HEIGHT - 40, 32, WHITE);
+	}
+	else if (game_state == GAME_STATE_LOOSE)
+	{
+		DrawText("YOU LOST", 500, 600, 48, RED);
+	}
+	else if (game_state == GAME_STATE_VICTORY)
+	{
+		DrawText("YOU WIN!", 500, 600, 48, WHITE);
+	}
 }
 
 void ApplyThrust(Ship *ship)
@@ -260,6 +313,8 @@ void ListenInputs()
 	if (IsKeyReleased(KEY_LEFT) || IsKeyReleased(KEY_RIGHT)) player_ship.angle_vel = 0;
 
 	if (IsKeyDown(KEY_SPACE)) Shoot();
+
+	if (IsKeyReleased(KEY_R)) GameReset();
 }
 
 void UpdateBlackHoleInfluence(Ship *ship)
@@ -303,6 +358,7 @@ void UpdateEnemyLogic(float dt)
 		}
 		if (enemy_state == ENEMY_STATE_ROTATE)
 		{
+			enemy_ship.is_thrust = true;
 			enemy_ship.angle_vel = enemy_ship.rot_speed * enemy_rot_dir;
 		}
 	}
@@ -336,6 +392,13 @@ void UpdateEnemyLogic(float dt)
 void DestroyShip(Ship *ship)
 {
 	ship->is_alive = false;
+
+	SpawnExplosionEffect(ship->pos);
+
+	if (ship->is_player)
+		GameLose();
+	else
+		GameWin();
 }
 
 void CheckCollisionWithBlackhole()
@@ -346,8 +409,23 @@ void CheckCollisionWithBlackhole()
 	float distance = Vector2Distance(player_ship.pos, black_hole_pos);
 	if (distance < 32)
 	{
-		SpawnExplosionEffect(player_ship.pos);
 		DestroyShip(&player_ship);
+	}
+}
+
+void CheckCollisionWithEnemy()
+{
+	if (player_ship.is_alive == false)
+		return;
+	
+	if (enemy_ship.is_alive == false)
+		return;
+	
+	float distance = Vector2Distance(player_ship.pos, enemy_ship.pos);
+	if (distance < 16)
+	{
+		DestroyShip(&player_ship);
+		DestroyShip(&enemy_ship);
 	}
 }
 
@@ -366,14 +444,23 @@ void UpdateBullets()
 		all_bullets[i].pos = new_pos;
 
 		if (new_pos.x > SCREEN_WIDTH || new_pos.x < 0 || new_pos.y > SCREEN_HEIGHT || new_pos.y < 0)
+		{
 			all_bullets[i].is_active = false;
+			continue;
+		}
+		
+		float distanceToBlackHole = Vector2Distance(new_pos, black_hole_pos);
+		if (distanceToBlackHole < 16)
+		{
+			all_bullets[i].is_active = false;
+			continue;
+		}
 
 		if (enemy_ship.is_alive == false)
 			continue;
 
 		if (Vector2Distance(new_pos, enemy_ship.pos) < 12)
 		{
-			SpawnExplosionEffect(enemy_ship.pos);
 			DestroyShip(&enemy_ship);
 			all_bullets[i].is_active = false;
 		}
@@ -383,13 +470,13 @@ void UpdateBullets()
 void GameLogic()
 {
 	UpdateBlackHoleInfluence(&player_ship);
-	//UpdateBlackHoleInfluence(&enemy_ship);
 
 	UpdateShipPos(&player_ship);
 	UpdateEnemyLogic(GetFrameTime());
  
 	UpdateBullets();
 	CheckCollisionWithBlackhole();
+	CheckCollisionWithEnemy();
 }
 
 void DrawScreen()
@@ -403,6 +490,8 @@ void DrawScreen()
 		DrawBlackHole();
 		DrawBullets();
 		DrawExplosionEffect();
+
+		DrawUI();
 		
 	EndDrawing();
 }
@@ -421,7 +510,6 @@ int main ()
 	SetTargetFPS(60);
 
 	GameInit();
-	//SpawnExplosionEffect((Vector2){400, 400});
 	
 	while (!WindowShouldClose())
 	{
