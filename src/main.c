@@ -9,6 +9,7 @@ typedef struct Ship
 {
 	bool is_alive;
 	bool is_player;
+	bool is_thrust;
 	Vector2 pos;
 	Vector2 vel;
 	Vector2 move_dir;
@@ -29,6 +30,16 @@ typedef struct Bullet
 	float speed;
 } Bullet;
 
+typedef struct Animation
+{
+	int speed;
+	int cur_frame;
+	int frame_count;
+	Vector2 pos;
+	Rectangle texture_rect;
+	bool is_stopped;
+} Animation;
+
 
 float LerpAngle(float startAngle, float endAngle, float t);
 
@@ -37,6 +48,12 @@ const int SCREEN_WIDTH = 1280;
 const int SCREEN_HEIGHT = 800;
 
 Texture2D atlas;
+Rectangle explosion_texture_rect = {0, 32, 32, 32};
+int frame_counter = 0;
+int frame_speed = 8;
+int explosion_frame = 0;
+int animation_count = 0;
+Animation *animations;
 
 Ship player_ship;
 Rectangle ship_texture_rect = {0, 0, 32, 32};
@@ -69,8 +86,23 @@ int enemy_state = ENEMY_STATE_NONE;
 const float TIME_THRUST = 1.0f;
 const float DELAY_THRUST = 0.5f;
 float enemy_time = -1.0f;
-float enemy_rot_dir = 1.0f;
+int enemy_rot_dir = 1;
 float enemy_rot_time = 0.0f;
+
+
+float FromMilisecToSec(int milisec)
+{
+	int seconds = milisec / 1000;
+	if (milisec % 1000 > 500)
+    	seconds++;
+	
+	return seconds;
+}
+
+float RandomRange(int milisecFrom, int milisecTo)
+{
+	return FromMilisecToSec(GetRandomValue(milisecFrom, milisecTo));
+}
 
 void GameInit()
 {
@@ -102,15 +134,14 @@ void GameInit()
 
 void DrawThrustEffect(Ship *ship)
 {
-	if (ship->is_player == false)
+	if (ship->is_thrust == false)
 		return;
 
 	Vector2 effect_offset = {cosf(ship->angle * DEG2RAD), sinf(ship->angle * DEG2RAD)};
 	effect_offset = Vector2Scale(effect_offset, -16);
 	ship_effect_dest = (Rectangle){ship->pos.x + effect_offset.x, ship->pos.y + effect_offset.y, 32, 32};
 	
-	if (IsKeyDown(KEY_UP))
-		DrawTexturePro(atlas, ship_effect_texture_rect, ship_effect_dest, ship_origin, ship->angle, WHITE);
+	DrawTexturePro(atlas, ship_effect_texture_rect, ship_effect_dest, ship_origin, ship->angle, WHITE);
 }
 
 void DrawShip(Ship *ship)
@@ -123,7 +154,7 @@ void DrawShip(Ship *ship)
 	ship->dest.x = ship->pos.x;
 	ship->dest.y = ship->pos.y;
 
-	DrawTexturePro(atlas, ship_texture_rect, ship->dest, ship_origin, ship->angle, WHITE);
+	DrawTexturePro(atlas, ship_texture_rect, ship->dest, ship_origin, ship->angle, ship->is_player ? BLUE : RED);
 	DrawThrustEffect(ship);
 }
 
@@ -144,6 +175,50 @@ void DrawBullets()
 		bullet_dest.y = bullet.pos.y;
 		DrawTexturePro(atlas, bullet_texture_rect, bullet_dest, ship_origin, bullet.angle, WHITE);
 	}
+}
+
+void DrawExplosionEffect()
+{
+	frame_counter++;
+
+	if (frame_counter >= (60/frame_speed))
+	{
+		frame_counter = 0;
+
+		for (size_t i = 0; i < animation_count; i++)
+		{
+			if (animations[i].is_stopped)
+				continue;
+
+			animations[i].cur_frame++;
+
+			if (animations[i].cur_frame > animations[i].frame_count - 1)
+				animations[i].is_stopped = true;
+			
+			animations[i].texture_rect.x = animations[i].cur_frame * 32;
+		}
+	}
+
+	for (size_t i = 0; i < animation_count; i++)
+	{
+		if (animations[i].is_stopped)
+			continue;
+		
+		DrawTextureRec(atlas, animations[i].texture_rect, animations[i].pos, WHITE);
+	}
+}
+
+void SpawnExplosionEffect(Vector2 pos)
+{
+	animation_count++;
+	animations = realloc(animations, animation_count * sizeof(Animation));
+
+	animations[animation_count - 1].pos = Vector2Subtract(pos, (Vector2){16, 16});
+	animations[animation_count - 1].texture_rect = (Rectangle){0, 32, 32, 32};
+	animations[animation_count - 1].cur_frame = 0;
+	animations[animation_count - 1].frame_count = 4;
+	animations[animation_count - 1].speed = 8;
+	animations[animation_count - 1].is_stopped = false;
 }
 
 void ApplyThrust(Ship *ship)
@@ -177,7 +252,8 @@ void Shoot()
 
 void ListenInputs()
 {
-    if (IsKeyDown(KEY_UP))    ApplyThrust(&player_ship);
+	player_ship.is_thrust = IsKeyDown(KEY_UP);
+
     if (IsKeyDown(KEY_LEFT))  player_ship.angle_vel = -player_ship.rot_speed;
 	if (IsKeyDown(KEY_RIGHT)) player_ship.angle_vel = player_ship.rot_speed;
 
@@ -186,22 +262,25 @@ void ListenInputs()
 	if (IsKeyDown(KEY_SPACE)) Shoot();
 }
 
-void UpdateBlackHoleInfluence()
+void UpdateBlackHoleInfluence(Ship *ship)
 {
-	Vector2 direction = Vector2Subtract(black_hole_pos, player_ship.pos);
+	Vector2 direction = Vector2Subtract(black_hole_pos, ship->pos);
 	float distance = Vector2Length(direction);
 	float forceMagnitude = (5000 * 10 * 1000) / (distance * distance);
 	Vector2 force = Vector2Scale(Vector2Normalize(direction), forceMagnitude);
 
 	Vector2 acceleration = Vector2Scale(force, 1.0f / 10);
-    player_ship.vel = Vector2Add(player_ship.vel, Vector2Scale(acceleration, GetFrameTime()));
-    player_ship.pos = Vector2Add(player_ship.pos, Vector2Scale(player_ship.vel, GetFrameTime()));
+    ship->vel = Vector2Add(ship->vel, Vector2Scale(acceleration, GetFrameTime()));
+    ship->pos = Vector2Add(ship->pos, Vector2Scale(ship->vel, GetFrameTime()));
 }
 
 void UpdateShipPos(Ship *ship)
 {
 	if (ship->is_alive == false)
 		return;
+
+	if (ship->is_thrust)
+		ApplyThrust(ship);
 
 	ship->pos = Vector2Add(ship->pos, Vector2Scale(ship->vel, GetFrameTime()));
 	ship->angle += ship->angle_vel * GetFrameTime();
@@ -219,13 +298,19 @@ void UpdateEnemyLogic(float dt)
 		enemy_time -= dt;
 
 		if (enemy_state == ENEMY_STATE_THRUST)
-			ApplyThrust(&enemy_ship);
+		{
+			enemy_ship.is_thrust = true;
+		}
 		if (enemy_state == ENEMY_STATE_ROTATE)
+		{
 			enemy_ship.angle_vel = enemy_ship.rot_speed * enemy_rot_dir;
+		}
 	}
 
 	if (enemy_time < 0.0f)
 	{
+		enemy_ship.is_thrust = false;
+
 		if (enemy_state == ENEMY_STATE_NONE)
 		{
 			enemy_time = TIME_THRUST;
@@ -233,34 +318,37 @@ void UpdateEnemyLogic(float dt)
 		}
 		else if (enemy_state == ENEMY_STATE_THRUST)
 		{
-			enemy_time = GetRandomValue(1, 3);
+			enemy_time = RandomRange(500, 1000);
 			enemy_rot_dir = GetRandomValue(-1, 1);
 			enemy_state = ENEMY_STATE_ROTATE;
 		}
 		else if (enemy_state == ENEMY_STATE_ROTATE)
 		{
+			enemy_ship.angle_vel = 0.0f;
 			enemy_time = DELAY_THRUST;
 			enemy_state = ENEMY_STATE_NONE;
 		}
-		
 	}
 	
 	UpdateShipPos(&enemy_ship);
 }
 
-void DestroyPlayerShip()
+void DestroyShip(Ship *ship)
 {
-	player_ship.is_alive = false;
+	ship->is_alive = false;
 }
 
-void CheckCollision()
+void CheckCollisionWithBlackhole()
 {
 	if (player_ship.is_alive == false)
 		return;
 
 	float distance = Vector2Distance(player_ship.pos, black_hole_pos);
 	if (distance < 32)
-		DestroyPlayerShip();
+	{
+		SpawnExplosionEffect(player_ship.pos);
+		DestroyShip(&player_ship);
+	}
 }
 
 void UpdateBullets()
@@ -279,16 +367,29 @@ void UpdateBullets()
 
 		if (new_pos.x > SCREEN_WIDTH || new_pos.x < 0 || new_pos.y > SCREEN_HEIGHT || new_pos.y < 0)
 			all_bullets[i].is_active = false;
+
+		if (enemy_ship.is_alive == false)
+			continue;
+
+		if (Vector2Distance(new_pos, enemy_ship.pos) < 12)
+		{
+			SpawnExplosionEffect(enemy_ship.pos);
+			DestroyShip(&enemy_ship);
+			all_bullets[i].is_active = false;
+		}
 	}
 }
 
 void GameLogic()
 {
-	UpdateBlackHoleInfluence();
+	UpdateBlackHoleInfluence(&player_ship);
+	//UpdateBlackHoleInfluence(&enemy_ship);
+
 	UpdateShipPos(&player_ship);
 	UpdateEnemyLogic(GetFrameTime());
+ 
 	UpdateBullets();
-	CheckCollision();
+	CheckCollisionWithBlackhole();
 }
 
 void DrawScreen()
@@ -301,6 +402,7 @@ void DrawScreen()
 		DrawShip(&enemy_ship);
 		DrawBlackHole();
 		DrawBullets();
+		DrawExplosionEffect();
 		
 	EndDrawing();
 }
@@ -308,6 +410,7 @@ void DrawScreen()
 void Cleanup()
 {
 	UnloadTexture(atlas);
+	free(animations);
 }
 
 int main ()
@@ -318,6 +421,7 @@ int main ()
 	SetTargetFPS(60);
 
 	GameInit();
+	//SpawnExplosionEffect((Vector2){400, 400});
 	
 	while (!WindowShouldClose())
 	{
